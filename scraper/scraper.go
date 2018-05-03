@@ -1,13 +1,14 @@
 package scraper
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
-	"html"
 	"io/ioutil"
 	"net/http"
-	"strings"
 	"time"
+
+	htmlParse "golang.org/x/net/html"
 )
 
 type scraper struct {
@@ -39,7 +40,6 @@ func (s scraper) User(name string) ([]string, error) {
 		return nil, err
 	}
 
-	ioutil.WriteFile("tmp.json", []byte(body), 0644)
 	return parseBody(body)
 }
 
@@ -48,22 +48,32 @@ func parseBody(body string) ([]string, error) {
 
 	json.Unmarshal([]byte(body), &tweets)
 
-	fmt.Print(tweets)
+	ioutil.WriteFile("tmp.html", []byte(tweets.Items), 0644)
 
-	return []string{}, nil
+	node, err := htmlParse.Parse(bytes.NewReader([]byte(tweets.Items)))
+	if err != nil {
+		return nil, err
+	}
+
+	tweetText := make([]string, 0, 50)
+
+	parseNodes(node, 0)
+
+	return tweetText, nil
+}
+
+func parseNodes(n *htmlParse.Node, d int) {
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+
+		parseNodes(c, d+1)
+	}
 }
 
 type twitterBody struct {
-	Items []tweet `json:"items_html"`
-	Min   string  `json:"min_position"`
-	More  bool    `json:"has_more_items"`
-}
-
-type tweet struct {
-	Name       string `json:"name"`
-	ScreenName string `json:"screen_name"`
-	TweetID    string `json:"tweet_ids"`
-	Text       string `json:"emojified_text_as_html"`
+	Items  string `json:"items_html"`
+	MinPos string `json:"min_position"`
+	MaxPos string `json:"max_position"`
+	More   bool   `json:"has_more_items"`
 }
 
 func (s scraper) getBody(name string) (string, error) {
@@ -89,12 +99,5 @@ func (s scraper) getBody(name string) (string, error) {
 		return "", err
 	}
 
-	htmlClean := html.UnescapeString(string(b))
-	utf8Clean := strings.Replace(htmlClean, `\u007b`, "{", -1)
-	utf8Clean = strings.Replace(utf8Clean, `\u007d`, "}", -1)
-	// utf8Clean = strings.Replace(utf8Clean, `\n`, "\n", -1)
-	utf8Clean = strings.Replace(utf8Clean, `\u003c`, "<", -1)
-	utf8Clean = strings.Replace(utf8Clean, `\u003e`, ">", -1)
-
-	return utf8Clean, nil
+	return string(b), nil
 }
